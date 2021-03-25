@@ -5,7 +5,7 @@ const db_config = dbConfig.db;
 
 const sequelize = new Sequelize(
   db_config.DB,
-  db_config.USER,
+  db_config.USER, 
   db_config.PASSWORD,
   {
     host: db_config.HOST,

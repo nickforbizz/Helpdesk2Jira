@@ -100,9 +100,10 @@ exports.findOne = (req, res) => {
       res.send(data);
     })
     .catch((err) => {
+        console.log(err);  
       res.status(500).send({
         code: -1,
-        message: "Error retrieving User with id=" + id,
+        message: err.message||"Error retrieving User with id=" + id,
       });
     });
 };
