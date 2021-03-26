@@ -5,7 +5,8 @@ const env_vars = {
     helpdesk_apiKey: process.env.HELPDESK_APIKEY,
     helpdesk_endpoint : process.env.HELPDESK_ENDPOINT || "https://keklf-odk51:10443/helpdesk/WebObjects/Helpdesk.woa/ra",
     jira_endpoint : process.env.JIRA_ENDPOINT || "http://localhost:8080/rest/api/2",
-    jira_apikey:  process.env.JIRA_APIKEY
+    jira_apikey:  process.env.JIRA_APIKEY,
+    token_key:  process.env.token_key
 }
 
 module.exports = {
