@@ -1,10 +1,11 @@
+const verify = require("../helpers/verify-token")
 module.exports = (app) => {
   const tickets = require("../controllers/ticket.controller");
 
   var router = require("express").Router();
 
   // Create a new Ticket
-  router.post("/", tickets.create);
+  router.post("/", verify, tickets.create);
 
   // Retrieve all tickets
   router.get("/", tickets.findAll);
@@ -19,13 +20,13 @@ module.exports = (app) => {
   router.get("/:id", tickets.findOne);
 
   // Update a Ticket with id
-  router.put("/:id", tickets.update);
+  router.put("/:id", verify, tickets.update);
 
   // Delete a Ticket with id
-  router.delete("/:id", tickets.deleteOne);
+  router.delete("/:id", verify, tickets.deleteOne);
 
   // Delete all tickets
-  router.delete("/", tickets.deleteAll);
+  router.delete("/", verify, tickets.deleteAll);
 
   app.use("/api/tickets", router);
 };

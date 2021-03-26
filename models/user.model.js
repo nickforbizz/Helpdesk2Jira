@@ -1,3 +1,4 @@
+const bcrypt = require("bcrypt");
 module.exports = (sequelize, Sequelize) => {
     const User = sequelize.define("User", {
       names: {
@@ -8,12 +9,13 @@ module.exports = (sequelize, Sequelize) => {
       }, 
       password: {
         type: Sequelize.TEXT,
-        get() {
-          return undefined;
-        }
+        // get() {
+        //   // return undefined;
+        // }
       },
       email: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
+        unique: true
       },
       phone: {
         type: Sequelize.STRING
@@ -43,9 +45,16 @@ module.exports = (sequelize, Sequelize) => {
         defaultValue: 1
       }
     }, {
+      hooks: {},
       timestamps: false,
       underscored: true
     });
-  
+
+    // FIXME: 
+    User.validPassword = (async function(password, options) {
+      // return await bcrypt.compare(password, this.password);
+      return (password)
+    })
+    
     return User;
   };

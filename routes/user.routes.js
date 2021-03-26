@@ -1,10 +1,15 @@
-module.exports = app => {
-    const users = require("../controllers/user.controller");
-  
-    var router = require("express").Router();
+const verify = require("../helpers/verify-token")
 
-     // Create a new User
-  router.post("/", users.create);
+module.exports = app => {
+  const users = require("../controllers/user.controller");
+
+  var router = require("express").Router();
+
+  // Create a new User
+  router.post("/", verify, users.create);
+
+  // login User
+  router.post("/login", users.login);
 
   // Retrieve all users
   router.get("/", users.findAll);
@@ -16,13 +21,13 @@ module.exports = app => {
   router.get("/:id", users.findOne);
 
   // Update a User with id
-  router.put("/:id", users.update);
+  router.put("/:id", verify, users.update);
 
   // Delete a User with id
-  router.delete("/:id", users.delete);
+  router.delete("/:id", verify, users.delete);
 
   // Delete all users
-  router.delete("/", users.deleteAll);
+  router.delete("/", verify, users.deleteAll);
 
   app.use('/api/users', router);
 };
