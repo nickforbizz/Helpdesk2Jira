@@ -105,6 +105,7 @@ exports.login = async (req, res) => {
     if (!email_exists)  res.status(400).send({ code: -1, message:"Wrong Email/Password combination! please check your email or password and try again"});
 
     // check password 
+    console.log(email_exists);
     const password_check = await bcrypt.compare(password, email_exists.password);
     if (!password_check)  res.status(400).send({ code: -1, message:"Wrong Password/Email combination! please check your email or password and try again"});
 

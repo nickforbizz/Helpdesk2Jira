@@ -3,6 +3,7 @@ const axios = require("axios");
 const https = require("https");
 const { env_vars } = require("../config/config");
 const Ticket = db.tickets;
+const Param = db.params;
 const Op = db.Sequelize.Op;
 
 const { getPagingData } = require("../helpers/paginate");
@@ -29,9 +30,10 @@ create = async function (req, res) {
     })
     .catch((err) => {
       console.log(err);
+      res.send({code :-1, message: err.message || "Error fetching data from Helpdesk"})
     });
   const items = results.data;
-
+  let count_newtickets = 0;
   items.map(async function (item) {
     let ticket = {
       ticket_id: item.id,
@@ -52,10 +54,12 @@ create = async function (req, res) {
       },
     });
 
+    // if ticket with id was found dont create another ticket
     if (parseInt(ticket_count.count) < 1) {
       Ticket.create(ticket)
         .then((data) => {
-          console.log(data);
+          // console.log(data);
+          // push 
         })
         .catch((err) => {
           res.status(500).send({
@@ -64,53 +68,57 @@ create = async function (req, res) {
               err.message || "Some error occurred while creating the User.",
           });
         });
+    }else{
+      count_newtickets++;
     }
   });
 
-  res.send(items);
+  // push tickets to JIRA
+  if (count_newtickets > 0) {
+    req.params.funcCall = true;
+    pushToJira(req, res);
+    res.send(items);
+  }
+  res.send({code: -1, message: "No new tickets found"});
 };
 
 // Retrieve all tickets from the database.
-findAll = (req, res, funcCall=false) => {
-  const { page, size, title } = req.query;
-  const active = req.query.active || 1;
-  var condition = active
-    ? {
-        active: {
-          [Op.like]: `%${active}%`,
-        },
-      }
-    : null;
-
-  const { limit, offset } = getPagination(page, size);
-
+findAll = async (req, res) => {
+  funcCall= req.params.funcCall || false;
   if (funcCall) {
     return 1;
   }
 
-  Ticket.findAndCountAll({
-    limit,
-    offset,
-    where: condition,
-  })
-    .then((data) => {
-      const response = getPagingData(data, page, limit);
-      console.log("____________");
-      res.send(response);
+    const { page, size, title } = req.query;
+    const active = req.query.active || 1;
+  
+    const { limit, offset } = getPagination(page, size);
+
+  
+    Ticket.findAndCountAll({
+      limit,
+      offset,
+      where: { active: active },
     })
-    .catch((err) => {
-      res.status(500).send({
-        code: -1,
-        message: err.message || "Some error occurred while retrieving tickets.",
+      .then((data) => {
+        const response = getPagingData(data, page, limit);
+        res.send(response);
+      })
+      .catch((err) => {
+        res.status(500).send({
+          code: -1,
+          message: err.message || "Some error occurred while retrieving tickets.",
+        });
       });
-    });
+
 };
 
 // Find a single Ticket with an id
 async function findOne(req, res) {
   const id = req.params.id;
   // get user
-  user =  this.findAll(req, res, true)
+  req.params.funcCall = true
+  user =  await this.findAll(req, res)
   console.log(user);
   Ticket.findByPk(id)
     .then((data) => {
@@ -210,22 +218,39 @@ findAllPublished = (req, res) => {
 
 // push issues to jira endpoint
 pushToJira = async function (req, res) {
-  let open_tickets = await logUser().then((data) => data);
+  let jira_url = env_vars.jira_endpoint;
+  let jira_url_issue = `${jira_url}/issue`;
+  let param = await Param.findByPk(1);
+  let project = param.project;
+  let jira_url_findCreateProject = `${jira_url}/project/${project}`;
+  const config = {
+    headers: { Authorization: `Bearer ${env_vars.jira_apikey}` },
+  };
+  let funcCall= req.params.funcCall || false;
+
+  // find or create project on jira  
+  try {
+    await axios.get(jira_url_findCreateProject, config);
+  } catch (err) {
+    console.log(err.message || "error occured");
+    res.send( {code: -1, message: err.message +" Check if project: '"+project+"' is created on JIRA" || "error occured"})
+  }
+
+
+
+  let open_tickets = await openTickets().then((data) => data);
   let open_tickets_count = open_tickets.length;
-  console.log(open_tickets_count);
+
 
   //  if there are tickets push to Jira
   if (open_tickets_count > 0) {
-    const config = {
-      headers: { Authorization: `Bearer ${env_vars.jira_apikey}` },
-    };
-    let jira_url = `${env_vars.jira_endpoint}/issue`;
+    
     open_tickets.map(ticket=> {
       // check priority for issueType
       let ticket_issue = {
         fields: {
           project: {
-            key: "TEST",
+            key: project,
           },
           summary: ticket.subject,
           description: ticket.description,
@@ -241,18 +266,33 @@ pushToJira = async function (req, res) {
           priority: {
             name: "Highest",
           }, 
-          labels: ["bugfix", "blitz_test"],
+          labels: ["bug", 'issue', "blitz_test"],
         },
       };
 
       // push tickets to jira
-      const res = axios.post(jira_url, ticket_issue, config).then(res=>{
-        console.log(res.data);
-        // TODO:
+      const res = axios.post(jira_url_issue, ticket_issue, config).then(res=>{
         // update the tickets as inactive
+        ticket.active = 0;
+        Ticket.update(ticket, {
+          where: {
+            id: ticket.id,
+          },
+        })
       }).catch((err) => {
         console.log(err.message || "error occured");
+        res.send( {code:1, message: err.message || "error occured"})
       });
+    });// .map
+    
+    if (funcCall) {
+      return {code:1, message: "data pushed to JIRA", data: open_tickets,};
+    }
+  }else{
+    res.send({
+      code: -1,
+      message: "No Active Tickets",
+      data: open_tickets,
     });
   }
 
@@ -263,12 +303,9 @@ pushToJira = async function (req, res) {
   });
 };
 
-async function logUser() {
-  return await Ticket.findAll({ where: { active: 1 }, raw: true }).then(
-    (data) => {
-      return data;
-    }
-  );
+async function openTickets() {
+  let data = await Ticket.findAll({ where: { active: 1 }, raw: true });
+  return data;
 }
 
 module.exports = {
