@@ -78,7 +78,7 @@ findAll = async (req, res) => {
 // Find a single Param with an id
 async function findOne(req, res) {
   const id = req.params.id;
-  // get user
+  // get user  
   Param.findByPk(id)
     .then((data) => {
       
