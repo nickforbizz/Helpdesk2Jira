@@ -20,6 +20,9 @@ module.exports = (sequelize, Sequelize) => {
       ssl: {
         type: Sequelize.STRING
       },
+      project_lead: {
+        type: Sequelize.STRING
+      },
       rec_type: {
         type: Sequelize.INTEGER
       },

@@ -11,10 +11,11 @@ module.exports = (app) => {
   router.get("/", tickets.findAll);
 
   // Retrieve all published tickets
-  router.get("/published", tickets.findAllPublished);
+  router.get("/pullcomments", tickets.pullComments);
   
   // push issues to jira endpoint
   router.post("/pushtojira", verify, tickets.pushToJira);
+
 
   // Retrieve a single Ticket with id
   router.get("/:id", tickets.findOne);

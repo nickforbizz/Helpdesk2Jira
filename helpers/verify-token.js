@@ -3,8 +3,7 @@ const {env_vars} = require("../config/config")
 
 module.exports = async function auth(req, res, next) {
     let token = req.header("access-token") || req.header("Authorization")
-    console.log("_______________");
-    console.log(token);
+    // console.log(token);
     if (!token) res.status(401).send({code:-1, message: "Access Denied"}) ;
     try {
         let verified = jwt.verify(token, env_vars.token_key);

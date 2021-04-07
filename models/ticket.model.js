@@ -21,6 +21,12 @@ module.exports = (sequelize, Sequelize) => {
       reporter: {
         type: Sequelize.STRING
       },
+      jira_ticket_id: {
+        type: Sequelize.STRING
+      },
+      jira_ticket_key: {
+        type: Sequelize.STRING
+      },
       issue_type: {
         type: Sequelize.INTEGER
       },

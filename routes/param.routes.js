@@ -22,5 +22,9 @@ module.exports = (app) => {
   // Delete all params
   router.delete("/", verify, params.deleteAll);
 
+  
+  //  create project to Jira
+  router.post("/createjiraproject", verify, params.createJiraProject);
+
   app.use("/api/params", router);
 };

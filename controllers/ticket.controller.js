@@ -4,6 +4,7 @@ const https = require("https");
 const { env_vars } = require("../config/config");
 const Ticket = db.tickets;
 const Param = db.params;
+const Ticketcomment = db.ticketcomments;
 const Op = db.Sequelize.Op;
 
 const { getPagingData } = require("../helpers/paginate");
@@ -18,6 +19,10 @@ create = async function (req, res) {
     rejectUnauthorized: false,
   });
 
+  // current project
+  let param = await Param.findByPk(1);
+  let project = param.project;
+
   const results = await axios
     .get(
       `${env_vars.helpdesk_endpoint}/Tickets?apiKey=${env_vars.helpdesk_apiKey}&qualifier=(statustype.statusTypeName %3D 'Open')&username=${env_vars.helpdesk_username}`,
@@ -30,14 +35,17 @@ create = async function (req, res) {
     })
     .catch((err) => {
       console.log(err);
-      res.send({code :-1, message: err.message || "Error fetching data from Helpdesk"})
+      res.send({
+        code: -1,
+        message: err.message || "Error fetching data from Helpdesk",
+      });
     });
   const items = results.data;
   let count_newtickets = 0;
   items.map(async function (item) {
     let ticket = {
       ticket_id: item.id,
-      project: "TEST",
+      project: project,
       subject: item.shortSubject,
       description: item.shortDetail,
       priority: item.updateFlagType,
@@ -59,7 +67,7 @@ create = async function (req, res) {
       Ticket.create(ticket)
         .then((data) => {
           // console.log(data);
-          // push 
+          // call ticket comments
         })
         .catch((err) => {
           res.status(500).send({
@@ -68,10 +76,13 @@ create = async function (req, res) {
               err.message || "Some error occurred while creating the User.",
           });
         });
-    }else{
+    } else {
       count_newtickets++;
     }
   });
+
+  req.params.funcCall = true;
+  await pullComments(req, res);
 
   // push tickets to JIRA
   if (count_newtickets > 0) {
@@ -79,50 +90,47 @@ create = async function (req, res) {
     pushToJira(req, res);
     res.send(items);
   }
-  res.send({code: -1, message: "No new tickets found"});
+  res.send({ code: -1, message: "No new tickets found" });
 };
 
 // Retrieve all tickets from the database.
 findAll = async (req, res) => {
-  funcCall= req.params.funcCall || false;
+  funcCall = req.params.funcCall || false;
   if (funcCall) {
     return 1;
   }
 
-    const { page, size, title } = req.query;
-    const active = req.query.active || 1;
-  
-    const { limit, offset } = getPagination(page, size);
+  const { page, size, title } = req.query;
+  const active = req.query.active || 1;
 
-  
-    Ticket.findAndCountAll({
-      limit,
-      offset,
-      where: { active: active },
+  const { limit, offset } = getPagination(page, size);
+
+  Ticket.findAndCountAll({
+    limit,
+    offset,
+    where: { active: active },
+  })
+    .then((data) => {
+      const response = getPagingData(data, page, limit);
+      res.send(response);
     })
-      .then((data) => {
-        const response = getPagingData(data, page, limit);
-        res.send(response);
-      })
-      .catch((err) => {
-        res.status(500).send({
-          code: -1,
-          message: err.message || "Some error occurred while retrieving tickets.",
-        });
+    .catch((err) => {
+      res.status(500).send({
+        code: -1,
+        message: err.message || "Some error occurred while retrieving tickets.",
       });
-
+    });
 };
 
 // Find a single Ticket with an id
 async function findOne(req, res) {
   const id = req.params.id;
   // get user
-  req.params.funcCall = true
-  user =  await this.findAll(req, res)
+  req.params.funcCall = true;
+  user = await this.findAll(req, res);
   console.log(user);
   Ticket.findByPk(id)
     .then((data) => {
-      
       res.send(data);
     })
     .catch((err) => {
@@ -131,7 +139,7 @@ async function findOne(req, res) {
         message: "Error retrieving Ticket with id=" + id,
       });
     });
-};
+}
 
 // Update a Ticket by the id in the request
 update = (req, res) => {
@@ -222,30 +230,35 @@ pushToJira = async function (req, res) {
   let jira_url_issue = `${jira_url}/issue`;
   let param = await Param.findByPk(1);
   let project = param.project;
+  let project_lead = param.project_lead;
   let jira_url_findCreateProject = `${jira_url}/project/${project}`;
   const config = {
     headers: { Authorization: `Bearer ${env_vars.jira_apikey}` },
   };
-  let funcCall= req.params.funcCall || false;
+  let funcCall = req.params.funcCall || false;
 
-  // find or create project on jira  
+  // find or create project on jira
   try {
     await axios.get(jira_url_findCreateProject, config);
+    // res.send({code: 1, message: "found", data: cc});
   } catch (err) {
     console.log(err.message || "error occured");
-    res.send( {code: -1, message: err.message +" Check if project: '"+project+"' is created on JIRA" || "error occured"})
+    res.send({
+      code: -1,
+      message:
+        err.message +
+          " Check if project: '" +
+          project +
+          "' is created on JIRA" || "error occured",
+    });
   }
-
-
 
   let open_tickets = await openTickets().then((data) => data);
   let open_tickets_count = open_tickets.length;
 
-
   //  if there are tickets push to Jira
   if (open_tickets_count > 0) {
-    
-    open_tickets.map(ticket=> {
+    open_tickets.map((ticket) => {
       // check priority for issueType
       let ticket_issue = {
         fields: {
@@ -261,34 +274,43 @@ pushToJira = async function (req, res) {
             name: "ssiva",
           },
           reporter: {
-            name: "ssiva",
+            name: project_lead,
           },
           priority: {
             name: "Highest",
-          }, 
-          labels: ["bug", 'issue', "blitz_test"],
+          },
+          labels: ["bug", "issue", "blitz_test"],
         },
       };
 
+
       // push tickets to jira
-      const res = axios.post(jira_url_issue, ticket_issue, config).then(res=>{
-        // update the tickets as inactive
-        ticket.active = 0;
-        Ticket.update(ticket, {
-          where: {
-            id: ticket.id,
-          },
+      axios
+        .post(jira_url_issue, ticket_issue, config)
+        .then((res) => {
+          // update the tickets as inactive
+          ticket.active = 0;
+          ticket.jira_ticket_id = res.data.id;
+          ticket.jira_ticket_key = res.data.key;
+          Ticket.update(ticket, {
+            where: {
+              id: ticket.id,
+            },
+          });
         })
-      }).catch((err) => {
-        console.log(err.message || "error occured");
-        res.send( {code:1, message: err.message || "error occured"})
-      });
-    });// .map
-    
+        .catch((err) => {
+          console.log(
+            err.message + " while sending to Jira" || "error occured"
+          );
+          return;
+          // res.send( {code: -1, message: err.message || "error occured"})
+        });
+    }); // .map
+
     if (funcCall) {
-      return {code:1, message: "data pushed to JIRA", data: open_tickets,};
+      return { code: 1, message: "data pushed to JIRA", data: open_tickets };
     }
-  }else{
+  } else {
     res.send({
       code: -1,
       message: "No Active Tickets",
@@ -302,6 +324,113 @@ pushToJira = async function (req, res) {
     data: open_tickets,
   });
 };
+
+async function pullComments(req, res) {
+  let jira_url = env_vars.jira_endpoint;
+  const config = {
+    headers: { Authorization: `Bearer ${env_vars.jira_apikey}` },
+  };
+
+
+
+
+  // At request level
+  const agent = new https.Agent({
+    rejectUnauthorized: false,
+  });
+  let funcCall = req.params.funcCall || false;
+  const tickets = await Ticket.findAll(); //.then(data => res.json(data))
+
+  if (tickets.length > 0) {
+    tickets.map(async (data) => {
+      let ticketcomments = await axios.get(
+        `${env_vars.helpdesk_endpoint}/TicketNotes?apiKey=${env_vars.helpdesk_apiKey}&jobTicketId=${data.ticket_id}&username=${env_vars.helpdesk_username}`,
+        {
+          httpsAgent: agent,
+        }
+      );
+      let resticketcomments = ticketcomments.data;
+
+      if (resticketcomments.length > 0) {
+        resticketcomments.map(async (response) => {
+          // if (response.isTechNote === false) {
+            let data_comments = await Ticketcomment.findAll({
+              where: { helpdesk_id: response.id },
+            });
+            if (data_comments.length < 1) {
+              res_comment = {
+                body: response.mobileNoteText,
+                is_tech_note: response.isTechNote,
+                is_solution: response.isSolution,
+                type: response.type,
+                helpdesk_id: response.id,
+                ticket_id: data.jira_ticket_id,
+              };
+              Ticketcomment.create(res_comment)
+                .then((comment_created) => {
+                  // push comment to Jira and deactivate
+                  let jira_url_issue = `${jira_url}/issue/${data.jira_ticket_id}/comment`;
+                  let ticket_comment = {
+                    body: comment_created.body,
+                  };
+
+                  axios
+                    .post(jira_url_issue, ticket_comment, config)
+                    .then(async (jira_res) => {
+
+                        let data_patch = {
+                        username: jira_res.data.author.name,
+                        email: jira_res.data.author.emailAddress,
+                        jira_id: parseInt(jira_res.data.id),
+                        active: 0
+                        }
+
+                        try {
+                          
+                          await Ticketcomment.update(data_patch, {
+                            where: {
+                              id: comment_created.id,
+                            },
+                          })
+                        } catch (err) {
+                          console.log(
+                            err.message + " while patching comment" ||
+                              "comment patch failed"
+                          )
+                        }
+                    })
+                    .catch((err) =>
+                      console.log(
+                        err.message + " while posting comment to jira" ||
+                          "comment patch failed"
+                      )
+                    );
+                })
+                .catch((err) => {
+                  console.log(err.message + " while creating ticket comment");
+                });
+            }
+          // }
+          //   (response.isTechNote === false)
+        });
+      }
+    });
+  }
+
+  if (funcCall) {
+    return {
+      code: 1,
+      message: "data found",
+      data: tickets,
+    };
+  }
+
+  res.json({
+    code: 1,
+    message: "data found",
+    data: tickets,
+  });
+}
 
 async function openTickets() {
   let data = await Ticket.findAll({ where: { active: 1 }, raw: true });
@@ -317,4 +446,5 @@ module.exports = {
   deleteAll,
   findAllPublished,
   pushToJira,
-}
+  pullComments,
+};
