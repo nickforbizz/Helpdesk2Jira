@@ -22,38 +22,35 @@ create = async function (req, res) {
   // current project
   let param = await Param.findByPk(1);
   let project = param.project;
+  // const helpdesk_tickets; 
 
-  const results = await axios
-    .get(
-      `${env_vars.helpdesk_endpoint}/Tickets?apiKey=${env_vars.helpdesk_apiKey}&qualifier=(statustype.statusTypeName %3D 'Open')&username=${env_vars.helpdesk_username}`,
-      {
-        httpsAgent: agent,
-      }
-    )
-    .then((res) => {
-      return res;
-    })
-    .catch((err) => {
-      console.log(err);
+  try {
+    let helpdesk_getTickets = `${env_vars.helpdesk_endpoint}/Tickets?apiKey=${env_vars.helpdesk_apiKey}&qualifier=(statustype.statusTypeName %3D 'Open')&username=${env_vars.helpdesk_username}`;
+    helpdesk_tickets = await axios.get(helpdesk_getTickets,{httpsAgent: agent})
+  } catch (err) {
+    console.log(err);
       res.send({
         code: -1,
         message: err.message || "Error fetching data from Helpdesk",
       });
-    });
-  const items = results.data;
+  }
+ 
+  const newtickets = helpdesk_tickets.data;
+  
+  // loop through helpdesk fetched tickets and store them
   let count_newtickets = 0;
-  items.map(async function (item) {
+  newtickets.map(async function (newticket) {
     let ticket = {
-      ticket_id: item.id,
+      ticket_id: newticket.id,
       project: project,
-      subject: item.shortSubject,
-      description: item.shortDetail,
-      priority: item.updateFlagType,
-      assigned: item.displayClient,
-      reporter: item.displayClient,
+      subject: newticket.shortSubject,
+      description: newticket.shortDetail,
+      priority: newticket.updateFlagType,
+      assigned: newticket.displayClient,
+      reporter: newticket.displayClient,
       issue_type: 2,
-      ticket_updated_at: item.lastUpdated,
-      status: item.updateFlagType,
+      ticket_updated_at: newticket.lastUpdated,
+      status: newticket.updateFlagType,
     };
 
     let ticket_count = await Ticket.findAndCountAll({
@@ -64,18 +61,15 @@ create = async function (req, res) {
 
     // if ticket with id was found dont create another ticket
     if (parseInt(ticket_count.count) < 1) {
-      Ticket.create(ticket)
-        .then((data) => {
-          // console.log(data);
-          // call ticket comments
-        })
-        .catch((err) => {
-          res.status(500).send({
-            code: -1,
-            message:
-              err.message || "Some error occurred while creating the User.",
-          });
+      try {
+        await Ticket.create(ticket)
+      } catch (err) {
+        res.status(500).send({
+          code: -1,
+          message: err.message || "Some error occurred while creating the User.",
         });
+      }
+      
     } else {
       count_newtickets++;
     }
@@ -88,7 +82,7 @@ create = async function (req, res) {
   if (count_newtickets > 0) {
     req.params.funcCall = true;
     pushToJira(req, res);
-    res.send(items);
+    res.send(newtickets);
   }
   res.send({ code: -1, message: "No new tickets found" });
 };
@@ -270,16 +264,12 @@ pushToJira = async function (req, res) {
           issuetype: {
             name: "Bug",
           },
-          assignee: {
-            name: "ssiva",
-          },
           reporter: {
             name: project_lead,
           },
           priority: {
             name: "Highest",
           },
-          labels: ["bug", "issue", "blitz_test"],
         },
       };
 
@@ -300,7 +290,7 @@ pushToJira = async function (req, res) {
         })
         .catch((err) => {
           console.log(
-            err.message + " while sending to Jira" || "error occured"
+            err.message + " while sending ticket to Jira" || "error occured"
           );
           return;
           // res.send( {code: -1, message: err.message || "error occured"})
@@ -327,12 +317,6 @@ pushToJira = async function (req, res) {
 
 async function pullComments(req, res) {
   let jira_url = env_vars.jira_endpoint;
-  const config = {
-    headers: { Authorization: `Bearer ${env_vars.jira_apikey}` },
-  };
-
-
-
 
   // At request level
   const agent = new https.Agent({
@@ -343,6 +327,7 @@ async function pullComments(req, res) {
 
   if (tickets.length > 0) {
     tickets.map(async (data) => {
+      let jira_url_issue = `${jira_url}/issue/${data.jira_ticket_id}/comment`;
       let ticketcomments = await axios.get(
         `${env_vars.helpdesk_endpoint}/TicketNotes?apiKey=${env_vars.helpdesk_apiKey}&jobTicketId=${data.ticket_id}&username=${env_vars.helpdesk_username}`,
         {
@@ -359,7 +344,7 @@ async function pullComments(req, res) {
             });
             if (data_comments.length < 1) {
               res_comment = {
-                body: response.mobileNoteText,
+                body: response.mobileNoteText.replace(/(<([^>]+)>)/gi, ""),
                 is_tech_note: response.isTechNote,
                 is_solution: response.isSolution,
                 type: response.type,
@@ -369,42 +354,14 @@ async function pullComments(req, res) {
               Ticketcomment.create(res_comment)
                 .then((comment_created) => {
                   // push comment to Jira and deactivate
-                  let jira_url_issue = `${jira_url}/issue/${data.jira_ticket_id}/comment`;
+                  
                   let ticket_comment = {
                     body: comment_created.body,
                   };
 
-                  axios
-                    .post(jira_url_issue, ticket_comment, config)
-                    .then(async (jira_res) => {
-
-                        let data_patch = {
-                        username: jira_res.data.author.name,
-                        email: jira_res.data.author.emailAddress,
-                        jira_id: parseInt(jira_res.data.id),
-                        active: 0
-                        }
-
-                        try {
-                          
-                          await Ticketcomment.update(data_patch, {
-                            where: {
-                              id: comment_created.id,
-                            },
-                          })
-                        } catch (err) {
-                          console.log(
-                            err.message + " while patching comment" ||
-                              "comment patch failed"
-                          )
-                        }
-                    })
-                    .catch((err) =>
-                      console.log(
-                        err.message + " while posting comment to jira" ||
-                          "comment patch failed"
-                      )
-                    );
+                  // TODO:
+                  // call post comment to jira with some parameters
+                  postComments2Jira(jira_url_issue, ticket_comment, comment_created.id)
                 })
                 .catch((err) => {
                   console.log(err.message + " while creating ticket comment");
@@ -413,6 +370,17 @@ async function pullComments(req, res) {
           // }
           //   (response.isTechNote === false)
         });
+      }else{
+        let comments = await Ticketcomment.findAll({where: { active: 1}});
+        if(comments.length > 0){
+          comments.map(comment => {
+            let ticket_comment = {
+              body: comment.body,
+            };
+            // call post comment to jira with some parameters
+            postComments2Jira(jira_url_issue,ticket_comment, comment.id)
+          })
+        }
       }
     });
   }
@@ -435,6 +403,35 @@ async function pullComments(req, res) {
 async function openTickets() {
   let data = await Ticket.findAll({ where: { active: 1 }, raw: true });
   return data;
+}
+
+async function postComments2Jira(url, ticket_comment, comment_id){
+  const config = {
+    headers: { Authorization: `Bearer ${env_vars.jira_apikey}` },
+  };
+  try {
+    let comments = await axios.post(url, ticket_comment, config)
+    let data_patch = {
+      username: comments.data.author.name,
+      email: comments.data.author.emailAddress,
+      jira_id: parseInt(comments.data.id),
+      active: 0
+      }
+
+      try {
+        
+        await Ticketcomment.update(data_patch, {
+          where: {
+            id: comment_id,
+          },
+        })
+      } catch (err) {
+        console.log(err.message + " while patching comment" || "comment patch failed")
+      }
+  } catch (err) {
+    console.log( err.message + " while posting comment to jira" || "comment patch failed" )
+  }
+                  
 }
 
 module.exports = {

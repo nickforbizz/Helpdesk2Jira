@@ -189,11 +189,10 @@ createJiraProject = async function (req, res) {
   let data = {
     key: project,
     name: project,
-    projectTypeKey: "business",
-    description: "Example Project description",
+    projectTypeKey: "software",
+    description: project+" Project description",
     lead: project_lead,
   };
-  console.log(data);
   // find or create project on jira
   try {
     let res = await axios.post(jira_url_findCreateProject, data, config);
